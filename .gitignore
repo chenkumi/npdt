@@ -1,0 +1,7 @@
+node_modules
+dist
+dist-sea
+*.tgz
+.tmp-home
+scratch-*
+claude-work.ps1

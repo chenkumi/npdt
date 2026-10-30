@@ -1,0 +1,64 @@
+{
+  "name": "npdt",
+  "version": "1.0.0",
+  "description": "Notepad Terminal: menus, mouse, multi-encoding, syntax highlighting, find & replace",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chenkumi/npdt.git"
+  },
+  "homepage": "https://github.com/chenkumi/npdt#readme",
+  "bugs": {
+    "url": "https://github.com/chenkumi/npdt/issues"
+  },
+  "bin": {
+    "npdt": "bin/npdt.js"
+  },
+  "files": [
+    "bin",
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "start": "node bin/npdt.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build:sea": "node scripts/build-sea.mjs",
+    "test:unit": "vitest run --exclude test/e2e/**",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
+  },
+  "dependencies": {
+    "chardet": "^2.2.0",
+    "iconv-lite": "^0.7.3",
+    "ink": "^8.0.0",
+    "lowlight": "^3.3.0",
+    "react": "^19.3.1",
+    "string-width": "^8.3.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@xterm/headless": "^6.0.0",
+    "esbuild": "^0.28.2",
+    "fast-check": "^4.10.2",
+    "node-pty": "^1.1.0",
+    "tsup": "^9.0.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  },
+  "keywords": [
+    "editor",
+    "notepad++",
+    "terminal",
+    "tui",
+    "ink",
+    "cli",
+    "text-editor"
+  ]
+}
