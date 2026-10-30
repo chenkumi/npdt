@@ -240,14 +240,14 @@ function drawStatus(c: Ctx): void {
     { text: `Ln:${line + 1}  Col:${colNo}${selLen ? `  Sel:${selLen}` : ''}`, onClick: () => void s.run('goto') },
     { text: EOL_LABELS[s.eol].match(/\((.*)\)/)![1]!, onClick: () => s.openMenu(4) },
     { text: encodingLabel(s.encoding), onClick: () => s.openMenu(4) },
-    ...(s.mode === null ? [] : [{ text: formatMode(s.mode), optional: 2, onClick: () => void s.run('file.permissions') }]),
+    ...(s.mode === null ? [] : [{ text: formatMode(s.mode), optional: 3, onClick: () => void s.run('file.permissions') }]),
     { text: s.lang.name, optional: 1, onClick: () => void s.run('view.syntaxLanguage') },
     { text: s.overwrite ? 'OVR' : 'INS', onClick: () => void s.run('edit.toggleOverwrite') },
   ];
   const sepText = ' | ';
   const widthOf = (list: Seg[]) => list.reduce((n, g) => n + w(g.text), 0) + sepText.length * list.length + 1;
-  // Narrow terminals drop the least important segments first (language, then length/lines).
-  for (const level of [1, 2]) if (widthOf(segs) > L.cols - 16) segs = segs.filter((g) => g.optional !== level);
+  // Narrow terminals drop the least important segments first (language, then length/lines, then permissions).
+  for (const level of [1, 2, 3]) if (widthOf(segs) > L.cols - 16) segs = segs.filter((g) => g.optional !== level);
   const total = widthOf(segs);
   const rightX = Math.max(L.cols - total, 0);
   let x = rightX;

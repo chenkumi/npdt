@@ -10,12 +10,14 @@ interface Tool {
   args: string[];
   /** Encodes the text for stdin. */
   encode?: (text: string) => Buffer;
+  /** Extra environment for the child process. */
+  env?: NodeJS.ProcessEnv;
 }
 
 /** Runs a tool, optionally feeding stdin, and resolves with its stdout. Rejects on spawn failure / non-zero exit / timeout. */
 function run(tool: Tool, input?: Buffer, timeoutMs = 4000): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn(tool.cmd, tool.args, { stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true });
+    const child = spawn(tool.cmd, tool.args, { stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true, env: tool.env ? { ...process.env, ...tool.env } : process.env });
     const out: Buffer[] = [];
     const timer = setTimeout(() => {
       child.kill();
@@ -48,7 +50,9 @@ function candidates(): { write: Tool[]; read: Tool[] } {
     };
   }
   if (process.platform === 'darwin') {
-    return { write: [{ cmd: 'pbcopy', args: [] }], read: [{ cmd: 'pbpaste', args: [] }] };
+    // pbcopy/pbpaste mangle non-ASCII text unless a UTF-8 locale is set (it is empty in some shells/GUI launches).
+    const env = { LANG: 'en_US.UTF-8', LC_ALL: 'en_US.UTF-8' };
+    return { write: [{ cmd: 'pbcopy', args: [], env }], read: [{ cmd: 'pbpaste', args: [], env }] };
   }
   const write: Tool[] = [];
   const read: Tool[] = [];
