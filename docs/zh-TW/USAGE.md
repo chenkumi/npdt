@@ -78,7 +78,7 @@
 
 - 主題：`dark`（預設）、`light`（舊名 `classic` 仍可使用）、`contrast`。`F9` 在深色與淺色間切換，也可由「檢視 → 主題」選擇；選單中的變更會自動寫回設定檔。
 - 語言：預設 `en`。支援 `en`、`zh-TW`（繁體中文）、`zh-CN`（简体中文）、`ja`、`ko`、`es`、`fr`、`de`、`pt-BR`、`ru` 共 10 種，另有 `auto`（依 `LC_ALL` / `LANG` 等系統語系自動選擇）。由「檢視 → 語言…」切換，立即生效。狀態列的技術標籤（Length / Lines / Ln / Col）不翻譯。
-- 新增語言：複製 `src/core/locales/en.ts`、翻譯後在 `src/core/i18n.ts` 註冊；`test/i18n.test.ts` 會檢查所有語言的鍵與 `{參數}` 是否一致。
+- 新增語言：複製 `src/core/locales/en.ts`、翻譯後在 `src/core/i18n.ts` 註冊；請確保所有語言的鍵與 `{參數}` 一致。
 - `autoReload`：檔案在磁碟上被外部程式修改時，若目前沒有未存修改就自動重新載入並保留游標位置；有未存修改則只提示，不會覆蓋。重新載入後復原（Undo）歷史會清空。
 - 關閉檔案時會記住游標與捲動位置（存於設定資料夾的 `state.json`，最多 200 個檔案），下次開啟同一檔案自動回到原位。
 - 無效的設定值只會回退到預設並在狀態列提示，不影響啟動。
@@ -91,10 +91,9 @@ npm install
 npm run dev        # tsup watch
 npm start          # 執行 dist（先 npm run build）
 npm run typecheck
-npm test           # 單元 + 元件 + pty 端到端測試
 ```
 
-架構摘要：`src/core` 不依賴 UI（緩衝區、Undo、搜尋、檔案 I/O、命令、`Session` 狀態機）；`src/ui/frame.ts` 把整個畫面畫到自製的 cell 網格再交給 Ink 輸出，因此下拉選單與對話框可以直接覆蓋在編輯區上；`src/input` 自行解析鍵盤 / 滑鼠 / 貼上序列（含 kitty protocol），Ink 只負責輸出。設計細節見 [PLAN.md](PLAN.md)。
+架構摘要：`src/core` 不依賴 UI（緩衝區、Undo、搜尋、檔案 I/O、命令、`Session` 狀態機）；`src/ui/frame.ts` 把整個畫面畫到自製的 cell 網格再交給 Ink 輸出，因此下拉選單與對話框可以直接覆蓋在編輯區上；`src/input` 自行解析鍵盤 / 滑鼠 / 貼上序列（含 kitty protocol），Ink 只負責輸出。設計細節見 [PLAN.md](../PLAN.md)。
 
 ## 授權
 
