@@ -16,14 +16,16 @@ interface Tool {
 
 /** Runs a tool, optionally feeding stdin, and resolves with its stdout. Rejects on spawn failure / non-zero exit / timeout. */
 function run(tool: Tool, input?: Buffer, timeoutMs = 4000): Promise<string> {
+  // Writers (xclip -in, wl-copy) fork a daemon that keeps inherited pipes open, so 'close' would wait for the timeout; discard their stdout.
+  const capture = input === undefined;
   return new Promise((resolve, reject) => {
-    const child = spawn(tool.cmd, tool.args, { stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true, env: tool.env ? { ...process.env, ...tool.env } : process.env });
+    const child = spawn(tool.cmd, tool.args, { stdio: ['pipe', capture ? 'pipe' : 'ignore', 'ignore'], windowsHide: true, env: tool.env ? { ...process.env, ...tool.env } : process.env });
     const out: Buffer[] = [];
     const timer = setTimeout(() => {
       child.kill();
       reject(new Error(`${tool.cmd} timed out`));
     }, timeoutMs);
-    child.stdout.on('data', (d: Buffer) => out.push(d));
+    child.stdout?.on('data', (d: Buffer) => out.push(d));
     child.on('error', (e) => {
       clearTimeout(timer);
       reject(e);
@@ -33,8 +35,8 @@ function run(tool: Tool, input?: Buffer, timeoutMs = 4000): Promise<string> {
       if (code === 0) resolve(Buffer.concat(out).toString('utf8'));
       else reject(new Error(`${tool.cmd} exited with ${code}`));
     });
-    child.stdin.on('error', () => {});
-    child.stdin.end(input);
+    child.stdin!.on('error', () => {});
+    child.stdin!.end(input);
   });
 }
 
