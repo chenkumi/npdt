@@ -1,6 +1,6 @@
 {
   "name": "@chenkumi/npdt",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Notepad Terminal: menus, mouse, multi-encoding, syntax highlighting, find & replace",
   "type": "module",
   "license": "MIT",

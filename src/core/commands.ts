@@ -1,6 +1,7 @@
 import stringWidth from 'string-width';
 import { displayWidth, getTabSize } from './buffer/graphemes.js';
 import type { Motion } from './buffer/document.js';
+import { SPECIAL_CATEGORIES, type SpecialCategory } from './buffer/specials.js';
 import { advance, type Edit, type Pos } from './buffer/types.js';
 import { THEME_IDS, type ThemeId } from './config/config.js';
 import { openFileDialog } from './dialogs.js';
@@ -406,49 +407,36 @@ def('goto', (s) => {
 
 def('view.wrap', (s) => s.setConfig({ wordWrap: !s.config.wordWrap }));
 def('view.lineNumbers', (s) => s.setConfig({ showLineNumbers: !s.config.showLineNumbers }));
-def('view.whitespace', (s) => s.setConfig({ showWhitespace: !s.config.showWhitespace }));
+def('view.special', (s, arg) => {
+  const c = arg as SpecialCategory;
+  s.setConfig({ specialChars: { ...s.config.specialChars, [c]: !s.config.specialChars[c] } });
+});
+def('view.special.all', (s) => s.setConfig({ specialChars: { whitespace: true, eol: true, nonPrinting: true, control: true } }), (s) => !SPECIAL_CATEGORIES.every((c) => s.config.specialChars[c]));
+def('view.special.none', (s) => s.setConfig({ specialChars: { whitespace: false, eol: false, nonPrinting: false, control: false } }), (s) => SPECIAL_CATEGORIES.some((c) => s.config.specialChars[c]));
+def('view.whitespace', (s) => void s.run(SPECIAL_CATEGORIES.some((c) => s.config.specialChars[c]) ? 'view.special.none' : 'view.special.all'));
 def('view.currentLine', (s) => s.setConfig({ highlightCurrentLine: !s.config.highlightCurrentLine }));
 def('view.syntax', (s) => s.setConfig({ syntaxHighlight: !s.config.syntaxHighlight }));
-def('view.theme', (s) => {
-  s.dialog = {
-    kind: 'list',
-    title: t('dlg.themeTitle'),
-    items: THEME_IDS.map((id) => ({ label: t(`theme.${id}`), value: id, checked: s.config.theme === id })),
-    index: Math.max(THEME_IDS.indexOf(s.config.theme), 0),
-    onPick: (id) => s.setConfig({ theme: id as ThemeId }),
-  };
+/** Opens the View menu with the given submenu expanded (used by status bar clicks and the old command ids). */
+function openViewSubmenu(s: Session, id: string): void {
+  const menu = MENUS.findIndex((m) => m.mnemonic === 'v');
+  s.openMenu(menu);
+  s.openSubmenu(menu, MENUS[menu]!.items.findIndex((it) => it.id === id));
+}
+def('view.syntaxLanguage', (s) => openViewSubmenu(s, 'syntaxLanguage'));
+def('view.tabSettings', (s) => openViewSubmenu(s, 'tabSettings'));
+def('view.theme', (s) => openViewSubmenu(s, 'theme'));
+def('view.language', (s) => openViewSubmenu(s, 'language'));
+def('view.theme.set', (s, arg) => s.setConfig({ theme: arg as ThemeId }));
+def('view.language.set', (s, arg) => s.setConfig({ language: arg as string }));
+def('view.tab.set', (s, arg) => {
+  const [kind, n] = String(arg).split(':');
+  s.setConfig({ insertSpaces: kind === 'spaces', tabSize: Number(n) });
 });
-def('view.syntaxLanguage', (s) => {
-  const names = ['Plain Text', ...LANGUAGES.filter((l) => isSupported(l.hljs)).map((l) => l.name)];
-  const current = s.langOverride;
-  s.dialog = {
-    kind: 'list',
-    title: t('dlg.syntaxTitle'),
-    items: [
-      { label: t('lang.autoSyntax'), value: '', checked: current === null },
-      ...names.map((n) => ({ label: n, value: n, checked: current === n })),
-    ],
-    index: current === null ? 0 : names.indexOf(current) + 1,
-    onPick: (v) => {
-      s.setSyntaxLanguage(v || null);
-      s.flash(s.lang.name);
-    },
-  };
+def('view.syntaxLanguage.set', (s, arg) => {
+  s.setSyntaxLanguage(arg ? String(arg) : null);
+  s.flash(s.lang.name);
 });
 def('view.toggleDark', (s) => s.setConfig({ theme: s.config.theme === 'dark' ? 'light' : 'dark' }));
-def('view.language', (s) => {
-  const ids = ['auto', ...LOCALES.map((l) => l.id)];
-  s.dialog = {
-    kind: 'list',
-    title: t('dlg.languageTitle'),
-    items: [
-      { label: t('lang.auto'), value: 'auto', checked: s.config.language === 'auto' },
-      ...LOCALES.map((l) => ({ label: l.name, value: l.id as string, checked: s.config.language === l.id })),
-    ],
-    index: Math.max(ids.indexOf(s.config.language), 0),
-    onPick: (id) => s.setConfig({ language: id }),
-  };
-});
 
 // ---- encoding ----
 

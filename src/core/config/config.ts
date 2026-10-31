@@ -20,7 +20,15 @@ const schema = z.object({
   /** Reload the file automatically when it changes on disk and there are no unsaved edits. */
   autoReload: z.boolean().default(true),
   showLineNumbers: z.boolean().default(true),
-  showWhitespace: z.boolean().default(false),
+  /** Which invisible characters are drawn as badges (View > Special Characters). */
+  specialChars: z
+    .object({
+      whitespace: z.boolean().default(false),
+      eol: z.boolean().default(false),
+      nonPrinting: z.boolean().default(false),
+      control: z.boolean().default(false),
+    })
+    .default({ whitespace: false, eol: false, nonPrinting: false, control: false }),
   highlightCurrentLine: z.boolean().default(true),
   syntaxHighlight: z.boolean().default(true),
   autoIndent: z.boolean().default(true),
@@ -64,6 +72,8 @@ export function parseConfig(raw: unknown): LoadedConfig {
   }
   const input = raw as Record<string, unknown>;
   const out: Record<string, unknown> = {};
+  // Pre-1.1 "showWhitespace" drew spaces, tabs and line ends.
+  if (input.showWhitespace === true && !('specialChars' in input)) out.specialChars = { whitespace: true, eol: true, nonPrinting: false, control: false };
   for (const [name, field] of Object.entries(schema.shape)) {
     if (!(name in input)) continue;
     const r = (field as z.ZodType).safeParse(input[name]);

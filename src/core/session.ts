@@ -15,7 +15,8 @@ import { clearRecovery, readRecovery, writeRecovery } from './fs/recovery.js';
 import { FileError, getMode, getMtime, isReadOnly, loadFile, saveFile, setMode } from './fs/file-io.js';
 import { buildKeymap, type KeyBinding } from './keymap.js';
 import { languageByName, languageFor, type LangInfo } from './lang.js';
-import { MENUS } from './menus.js';
+import { setSpecialChars } from './buffer/specials.js';
+import { MENUS, type MenuItem } from './menus.js';
 import {
   DocIndex,
   allRanges,
@@ -47,6 +48,9 @@ const HIGHLIGHT_LOOKBACK = 100;
 const HIGHLIGHT_LOOKAHEAD = 20;
 /** Lines longer than this disable highlighting for the window (keeps the regex engine fast). */
 const HIGHLIGHT_MAX_LINE = 5000;
+
+/** How long the pointer may be away from a submenu and its parent row before the submenu closes. */
+const SUBMENU_CLOSE_DELAY_MS = 1000;
 
 export interface SessionOptions {
   config?: Config;
@@ -120,7 +124,7 @@ export class Session {
   scroll = { top: 0, sub: 0, left: 0 };
   overwrite = false;
   message: Message | null = null;
-  menu = { open: false, index: 0, item: 0 };
+  menu = { open: false, index: 0, item: 0, sub: -1, subTop: 0 };
   dialog: Dialog | null = null;
   find: FindState | null = null;
   lastQuery = '';
@@ -167,6 +171,7 @@ export class Session {
     }
     this.keymap = buildKeymap(this.config.keymap);
     setTabSize(this.config.tabSize);
+    setSpecialChars(this.config.specialChars);
     setLocale(this.config.language);
     for (const w of opts.warnings ?? []) this.flash(w, 'warn', 8000);
   }
@@ -234,6 +239,7 @@ export class Session {
   setConfig(patch: Partial<Config>): void {
     this.config = { ...this.config, ...patch };
     setTabSize(this.config.tabSize);
+    setSpecialChars(this.config.specialChars);
     if ('language' in patch) setLocale(this.config.language);
     if ('keymap' in patch) this.keymap = buildKeymap(this.config.keymap);
     this.highlight = null;
@@ -966,19 +972,55 @@ export class Session {
   // ---- menu ----
 
   openMenu(index = 0): void {
-    this.menu = { open: true, index, item: this.firstItem(index) };
+    this.cancelSubmenuClose();
+    this.menu = { open: true, index, item: this.firstItem(index), sub: -1, subTop: 0 };
   }
 
   closeMenu(): void {
     this.menu.open = false;
+    this.cancelSubmenuClose();
+  }
+
+  /** Cells that keep an open submenu alive (its parent row and its box) and the parent box, set by the renderer. */
+  submenuKeep: { x: number; y: number; w: number; h: number }[] = [];
+  menuParentBox = { x: 0, y: 0, w: 0 };
+  private subCloseTimer: ReturnType<typeof setTimeout> | undefined;
+
+  private cancelSubmenuClose(): void {
+    clearTimeout(this.subCloseTimer);
+    this.subCloseTimer = undefined;
+  }
+
+  /**
+   * The pointer left the submenu's parent row. The way to the submenu usually crosses other rows, so closing is
+   * deferred: after a delay it re-checks where the pointer actually is.
+   */
+  leaveSubmenu(): void {
+    if (this.subCloseTimer) return;
+    this.subCloseTimer = setTimeout(() => {
+      this.subCloseTimer = undefined;
+      const m = this.menu;
+      const p = this.hover;
+      if (!m.open || m.sub < 0) return;
+      if (p && this.submenuKeep.some((r) => p.x >= r.x && p.x < r.x + r.w && p.y >= r.y && p.y < r.y + r.h)) return;
+      const box = this.menuParentBox;
+      const row = p && p.x > box.x && p.x < box.x + box.w - 1 ? MENUS[m.index]?.items[p.y - box.y - 1] : undefined;
+      const at = p ? p.y - box.y - 1 : -1;
+      if (row && !row.sep && row.submenu) this.openSubmenu(m.index, at);
+      else {
+        m.sub = -1;
+        if (row && !row.sep && (!row.cmd || this.isEnabled(row.cmd))) m.item = at;
+      }
+      this.emit();
+    }, SUBMENU_CLOSE_DELAY_MS);
+    this.subCloseTimer.unref();
   }
 
   private firstItem(menu: number): number {
-    return this.stepItem(menu, -1, 1);
+    return this.stepItem(MENUS[menu]!.items, -1, 1);
   }
 
-  private stepItem(menu: number, from: number, dir: 1 | -1): number {
-    const items = MENUS[menu]!.items;
+  private stepItem(items: MenuItem[], from: number, dir: 1 | -1): number {
     for (let n = 1; n <= items.length; n++) {
       const i = (((from + dir * n) % items.length) + items.length) % items.length;
       const it = items[i]!;
@@ -987,18 +1029,68 @@ export class Session {
     return from;
   }
 
-  async activateMenuItem(menu: number, item: number): Promise<void> {
-    const it = MENUS[menu]?.items[item];
+  /** Opens the submenu of the highlighted item, if it has one. */
+  openSubmenu(menu: number, item: number): boolean {
+    const parent = MENUS[menu]?.items[item];
+    const sub = parent?.submenu;
+    if (!sub) return false;
+    const checked = parent.selectChecked ? sub.findIndex((it) => !it.sep && it.checked?.(this)) : -1;
+    this.menu = { open: true, index: menu, item, sub: checked >= 0 ? checked : this.stepItem(sub, -1, 1), subTop: 0 };
+    return true;
+  }
+
+  async activateMenuItem(menu: number, item: number, subItem = -1): Promise<void> {
+    const parent = MENUS[menu]?.items[item];
+    if (parent?.submenu && subItem < 0) {
+      this.openSubmenu(menu, item);
+      return;
+    }
+    const it = subItem >= 0 ? parent?.submenu?.[subItem] : parent;
     if (!it || it.sep || !it.cmd) return;
     if (!this.isEnabled(it.cmd)) return;
-    this.closeMenu();
+    if (!it.keepOpen) this.closeMenu();
     await this.run(it.cmd, it.arg);
+    if (it.keepOpen) this.keepSubmenuValid();
+  }
+
+  /** After a toggle inside a submenu the highlighted item may have become disabled (Show All / Hide All). */
+  private keepSubmenuValid(): void {
+    const m = this.menu;
+    const list = MENUS[m.index]?.items[m.item]?.submenu;
+    if (!list || m.sub < 0) return;
+    const cur = list[m.sub];
+    if (cur && cur.cmd && !this.isEnabled(cur.cmd)) m.sub = this.stepItem(list, m.sub, -1);
   }
 
   private menuKey(k: KeyEvent): void | Promise<void> {
     const m = this.menu;
     const id = keyId(k);
     const count = MENUS.length;
+    const subList = m.sub >= 0 ? MENUS[m.index]?.items[m.item]?.submenu : undefined;
+    if (subList) {
+      switch (id) {
+        case 'escape':
+        case 'left':
+          m.sub = -1;
+          return;
+        case 'f10':
+          this.closeMenu();
+          return;
+        case 'up':
+          m.sub = this.stepItem(subList, m.sub, -1);
+          return;
+        case 'down':
+          m.sub = this.stepItem(subList, m.sub, 1);
+          return;
+        case 'home':
+          m.sub = this.stepItem(subList, -1, 1);
+          return;
+        case 'return':
+        case 'space':
+          return this.activateMenuItem(m.index, m.item, m.sub);
+      }
+      return;
+    }
     switch (id) {
       case 'escape':
       case 'f10':
@@ -1009,14 +1101,15 @@ export class Session {
         m.item = this.firstItem(m.index);
         return;
       case 'right':
+        if (this.openSubmenu(m.index, m.item)) return;
         m.index = (m.index + 1) % count;
         m.item = this.firstItem(m.index);
         return;
       case 'up':
-        m.item = this.stepItem(m.index, m.item, -1);
+        m.item = this.stepItem(MENUS[m.index]!.items, m.item, -1);
         return;
       case 'down':
-        m.item = this.stepItem(m.index, m.item, 1);
+        m.item = this.stepItem(MENUS[m.index]!.items, m.item, 1);
         return;
       case 'home':
         m.item = this.firstItem(m.index);
@@ -1058,6 +1151,11 @@ export class Session {
     }
     if (ev.kind === 'wheelUp' || ev.kind === 'wheelDown') {
       const dir = ev.kind === 'wheelUp' ? -1 : 1;
+      const list = this.menu.open && this.menu.sub >= 0 ? MENUS[this.menu.index]?.items[this.menu.item]?.submenu : undefined;
+      if (list) {
+        for (let n = 0; n < 3; n++) this.menu.sub = this.stepItem(list, this.menu.sub, dir);
+        return;
+      }
       const d = this.dialog;
       if (d?.kind === 'list') d.index = Math.min(Math.max(d.index + dir, 0), d.items.length - 1);
       else if (d?.kind === 'info') d.scroll = Math.min(Math.max(d.scroll + dir * 2, 0), Math.max(d.lines.length - 1, 0));

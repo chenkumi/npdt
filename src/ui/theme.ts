@@ -1,5 +1,6 @@
 import type { ThemeId } from '../core/config/config.js';
 import type { TokenKind } from '../core/syntax.js';
+import type { MarkKind } from '../core/buffer/specials.js';
 import { style, type Style } from './screen.js';
 
 export interface Theme {
@@ -19,6 +20,7 @@ export interface Theme {
   match: Style;
   matchCurrent: Style;
   whitespace: Style;
+  mark: Record<MarkKind, Style>;
   cursor: Style;
   status: Style;
   statusWarn: Style;
@@ -47,6 +49,7 @@ interface Palette {
   match: [string, string];
   matchCurrent: [string, string];
   whitespace: string;
+  mark: Record<MarkKind, [string, string]>;
   cursor: [string, string];
   status: [string, string];
   warn: [string, string];
@@ -82,6 +85,7 @@ function build(id: ThemeId, p: Palette): Theme {
     match: s(p.match),
     matchCurrent: s(p.matchCurrent, { bold: true }),
     whitespace: style({ fg: p.whitespace }),
+    mark: Object.fromEntries((Object.keys(p.mark) as MarkKind[]).map((k) => [k, s(p.mark[k])])) as Record<MarkKind, Style>,
     cursor: s(p.cursor),
     status: s(p.status),
     statusWarn: s(p.warn),
@@ -111,6 +115,7 @@ const light = build('light', {
   match: ['#000000', '#ffee66'],
   matchCurrent: ['#000000', '#ff9632'],
   whitespace: '#b0b0b0',
+  mark: { whitespace: ['#808080', '#ececec'], eol: ['#ffffff', '#3b78c4'], nonPrinting: ['#000000', '#f0c24a'], control: ['#ffffff', '#c0392b'], eof: ['#ffffff', '#8e5cb8'] },
   cursor: ['#ffffff', '#000000'],
   status: ['#a8a8a8', '#404040'],
   warn: ['#ffd479', '#404040'],
@@ -150,6 +155,7 @@ const dark = build('dark', {
   match: ['#000000', '#d7ba7d'],
   matchCurrent: ['#000000', '#f0a050'],
   whitespace: '#4a4a4a',
+  mark: { whitespace: ['#6a6a6a', '#2a2a2a'], eol: ['#ffffff', '#2f5f9e'], nonPrinting: ['#000000', '#d7a43a'], control: ['#ffffff', '#a94442'], eof: ['#ffffff', '#7a4fa0'] },
   cursor: ['#1e1e1e', '#d4d4d4'],
   status: ['#9d9d9d', '#3c3c3c'],
   warn: ['#ffd479', '#3c3c3c'],
@@ -189,6 +195,7 @@ const contrast = build('contrast', {
   match: ['#000000', '#ffff00'],
   matchCurrent: ['#000000', '#ff8000'],
   whitespace: '#808080',
+  mark: { whitespace: ['#ffffff', '#404040'], eol: ['#000000', '#00ffff'], nonPrinting: ['#000000', '#ffff00'], control: ['#ffffff', '#ff0000'], eof: ['#000000', '#ff00ff'] },
   cursor: ['#000000', '#ffffff'],
   status: ['#ffffff', '#000000'],
   warn: ['#ffff00', '#000000'],

@@ -1,6 +1,10 @@
+import type { SpecialCategory } from './buffer/specials.js';
+import { THEME_IDS } from './config/config.js';
 import { ENCODINGS } from './fs/encoding.js';
 import { EOL_LABELS, type Eol } from './fs/eol.js';
-import { t, type MsgKey } from './i18n.js';
+import { t, LOCALES, type MsgKey } from './i18n.js';
+import { LANGUAGES } from './lang.js';
+import { isSupported } from './syntax.js';
 import type { Session } from './session.js';
 
 export interface MenuItem {
@@ -10,6 +14,14 @@ export interface MenuItem {
   arg?: unknown;
   sep?: true;
   checked?: (s: Session) => boolean;
+  /** Lets commands open this item's submenu (status bar clicks). */
+  id?: string;
+  /** Start the submenu on its checked item instead of the first one. */
+  selectChecked?: true;
+  /** Cascading items; activating this item opens them instead of running a command. */
+  submenu?: MenuItem[];
+  /** Keep the menu open after running (toggles inside a submenu). */
+  keepOpen?: true;
 }
 
 export interface Menu {
@@ -41,6 +53,34 @@ function menu(key: MsgKey, mnemonic: string, items: MenuItem[]): Menu {
     items,
   };
 }
+
+/** A pick-one entry: runs `cmd` with `arg` and shows a check while `checked` holds. */
+function choice(label: string | (() => string), cmd: string, arg: unknown, checked: (s: Session) => boolean): MenuItem {
+  return {
+    get label() {
+      return typeof label === 'function' ? label() : label;
+    },
+    cmd,
+    arg,
+    checked,
+  };
+}
+
+function submenuItem(key: MsgKey, id: string, build: () => MenuItem[]): MenuItem {
+  return {
+    id,
+    selectChecked: true,
+    get label() {
+      return t(key);
+    },
+    get submenu() {
+      return build();
+    },
+  };
+}
+
+const TAB_WIDTHS = [2, 3, 4, 6, 8];
+let syntaxNames: string[] | undefined;
 
 export const MENUS: Menu[] = [
   menu('menu.file', 'f', [
@@ -92,14 +132,40 @@ export const MENUS: Menu[] = [
   menu('menu.view', 'v', [
     item('mi.wrap', 'view.wrap', { checked: (s) => s.config.wordWrap }),
     item('mi.lineNumbers', 'view.lineNumbers', { checked: (s) => s.config.showLineNumbers }),
-    item('mi.whitespace', 'view.whitespace', { checked: (s) => s.config.showWhitespace }),
+    {
+      get label() {
+        return t('mi.special');
+      },
+      submenu: [
+        ...(['whitespace', 'eol', 'nonPrinting', 'control'] as SpecialCategory[]).map((c) =>
+          item(`mi.special.${c}`, 'view.special', { arg: c, keepOpen: true, checked: (s: Session) => s.config.specialChars[c] }),
+        ),
+        sep,
+        item('mi.special.showAll', 'view.special.all', { keepOpen: true }),
+        item('mi.special.hideAll', 'view.special.none', { keepOpen: true }),
+      ],
+    },
     item('mi.currentLine', 'view.currentLine', { checked: (s) => s.config.highlightCurrentLine }),
     item('mi.syntax', 'view.syntax', { checked: (s) => s.config.syntaxHighlight }),
     sep,
-    item('mi.syntaxMode', 'view.syntaxLanguage'),
-    item('mi.theme', 'view.theme'),
+    submenuItem('mi.syntaxMode', 'syntaxLanguage', () => {
+      syntaxNames ??= ['Plain Text', ...LANGUAGES.filter((l) => isSupported(l.hljs)).map((l) => l.name)];
+      return [
+        choice(() => t('lang.autoSyntax'), 'view.syntaxLanguage.set', '', (s) => s.langOverride === null),
+        ...syntaxNames.map((n) => choice(n, 'view.syntaxLanguage.set', n, (s) => s.langOverride === n)),
+      ];
+    }),
+    submenuItem('mi.tabSettings', 'tabSettings', () => [
+      ...TAB_WIDTHS.map((n) => choice(() => t('tab.spaces', { n }), 'view.tab.set', `spaces:${n}`, (s) => s.config.insertSpaces && s.config.tabSize === n)),
+      sep,
+      ...TAB_WIDTHS.map((n) => choice(() => t('tab.tabs', { n }), 'view.tab.set', `tabs:${n}`, (s) => !s.config.insertSpaces && s.config.tabSize === n)),
+    ]),
+    submenuItem('mi.theme', 'theme', () => THEME_IDS.map((id) => choice(() => t(`theme.${id}`), 'view.theme.set', id, (s) => s.config.theme === id))),
     item('mi.toggleDark', 'view.toggleDark'),
-    item('mi.language', 'view.language'),
+    submenuItem('mi.language', 'language', () => [
+      choice(() => t('lang.auto'), 'view.language.set', 'auto', (s) => s.config.language === 'auto'),
+      ...LOCALES.map((l) => choice(l.name, 'view.language.set', l.id, (s) => s.config.language === l.id)),
+    ]),
   ]),
   menu('menu.encoding', 'n', [
     ...ENCODINGS.map((e): MenuItem => ({ label: e.label, cmd: 'encoding.set', arg: e.id, checked: (s) => s.encoding === e.id })),

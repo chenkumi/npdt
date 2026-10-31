@@ -65,7 +65,7 @@
   "insertSpaces": true,
   "wordWrap": false,
   "showLineNumbers": true,
-  "showWhitespace": false,
+  "specialChars": { "whitespace": false, "eol": false, "nonPrinting": false, "control": false },
   "highlightCurrentLine": true,
   "syntaxHighlight": true,
   "autoIndent": true,
@@ -76,6 +76,7 @@
 }
 ```
 
+- 特殊字元：「檢視 → 特殊字元」以彩色標籤顯示不可視字元（` CRLF `、` ZWSP `、` NUL `、` EOF `）。分類：空白與 Tab、行尾、Non-Printing（零寬／雙向／格式字元）、控制字元與 EOF。僅影響顯示，不修改檔案；舊的 `showWhitespace` 設定會自動轉換。詳見 `docs/SPECIAL-CHARS.md`。
 - 主題：`dark`（預設）、`light`（舊名 `classic` 仍可使用）、`contrast`。`F9` 在深色與淺色間切換，也可由「檢視 → 主題」選擇；選單中的變更會自動寫回設定檔。
 - 語言：預設 `en`。支援 `en`、`zh-TW`（繁體中文）、`zh-CN`（简体中文）、`ja`、`ko`、`es`、`fr`、`de`、`pt-BR`、`ru` 共 10 種，另有 `auto`（依 `LC_ALL` / `LANG` 等系統語系自動選擇）。由「檢視 → 語言…」切換，立即生效。狀態列的技術標籤（Length / Lines / Ln / Col）不翻譯。
 - 新增語言：複製 `src/core/locales/en.ts`、翻譯後在 `src/core/i18n.ts` 註冊；請確保所有語言的鍵與 `{參數}` 一致。

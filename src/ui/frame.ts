@@ -1,11 +1,12 @@
 import stringWidth from 'string-width';
+import { badge, markFor } from '../core/buffer/specials.js';
 import { displayWidth, lineCells } from '../core/buffer/graphemes.js';
 import { handleDialogKey, visibleEntries, type Dialog } from '../core/dialogs.js';
 import { EOL_LABELS } from '../core/fs/eol.js';
 import { formatMode } from '../core/fs/permissions.js';
 import { encodingLabel } from '../core/fs/encoding.js';
 import { t, type MsgKey } from '../core/i18n.js';
-import { MENUS } from '../core/menus.js';
+import { MENUS, type MenuItem } from '../core/menus.js';
 import type { Hit, RowInfo, Session } from '../core/session.js';
 import type { TextField } from '../core/text-field.js';
 import type { KeyEvent } from '../input/parser.js';
@@ -26,6 +27,15 @@ interface Ctx {
 }
 
 const w =(t: string): number => stringWidth(t);
+
+/**
+ * Some terminals (e.g. Orca) turn text that names an existing file into a clickable link and keep the click for
+ * themselves. A zero-width non-joiner after the first character keeps the name from matching, without changing the layout.
+ */
+function unlinkable(name: string): string {
+  const [first = '', ...rest] = name;
+  return rest.length === 0 || /[\\/]$/.test(name) ? name : `${first}‌${rest.join('')}`;
+}
 
 function truncate(text: string, width: number): string {
   if (w(text) <= width) return text;
@@ -116,25 +126,47 @@ function drawMenuBar(c: Ctx): number[] {
   return xs;
 }
 
-function drawDropdown(c: Ctx, xs: number[]): void {
-  const { s, screen, theme, L, hits } = c;
-  const menu = MENUS[s.menu.index]!;
-  // Clicking anywhere else closes the menu.
-  hits.push({ x: 0, y: 0, w: L.cols, h: L.rows, onMouse: () => s.closeMenu() });
-  const labelW = Math.max(...menu.items.map((it) => w(it.label)));
-  const keyW = Math.max(...menu.items.map((it) => (it.cmd ? w(s.shortcutFor(it.cmd, it.arg)) : 0)));
+interface MenuBox {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** Which slice of a long list is shown. */
+interface MenuView {
+  top: number;
+  rows: number;
+}
+
+/** Draws one dropdown box (the menu itself or a submenu); `place` picks its x from the box width. */
+function drawMenuBox(
+  c: Ctx,
+  items: MenuItem[],
+  y: number,
+  selected: number,
+  place: (boxW: number) => number,
+  activate: (i: number) => void,
+  hover: (i: number) => void,
+  view: MenuView = { top: 0, rows: items.length },
+): MenuBox {
+  const { s, screen, theme, hits } = c;
+  const keyOf = (it: MenuItem) => (it.submenu ? '►' : it.cmd ? s.shortcutFor(it.cmd, it.arg) : '');
+  const labelW = Math.max(...items.map((it) => w(it.label)));
+  const keyW = Math.max(...items.map((it) => w(keyOf(it))));
   const inner = 2 + labelW + (keyW ? 3 + keyW : 0) + 1;
   const boxW = inner + 2;
-  const x = Math.min(xs[s.menu.index] ?? 0, Math.max(L.cols - boxW, 0));
-  const y = L.menuY + 1;
-  const boxH = menu.items.length + 2;
+  const x = place(boxW);
+  const boxH = view.rows + 2;
+  y = Math.max(Math.min(y, c.L.rows - boxH), c.L.menuY + 1);
   screen.fill(x, y, boxW, boxH, theme.dropdown);
   screen.put(x, y, '┌' + '─'.repeat(inner) + '┐', theme.dropdown);
   screen.put(x, y + boxH - 1, '└' + '─'.repeat(inner) + '┘', theme.dropdown);
   // Registered before the items so the items (added later) win; clicks on borders/separators are swallowed.
   hits.push({ x, y, w: boxW, h: boxH, onMouse: () => {} });
-  menu.items.forEach((it, i) => {
-    const row = y + 1 + i;
+  items.slice(view.top, view.top + view.rows).forEach((it, k) => {
+    const i = view.top + k;
+    const row = y + 1 + k;
     screen.put(x, row, '│', theme.dropdown);
     screen.put(x + boxW - 1, row, '│', theme.dropdown);
     if (it.sep) {
@@ -142,17 +174,66 @@ function drawDropdown(c: Ctx, xs: number[]): void {
       return;
     }
     const enabled = !it.cmd || s.isEnabled(it.cmd);
-    const selected = i === s.menu.item;
-    const st = selected ? theme.dropdownActive : enabled ? theme.dropdown : theme.dropdownDisabled;
+    const st = i === selected ? theme.dropdownActive : enabled ? theme.dropdown : theme.dropdownDisabled;
     const check = it.checked?.(s) ? '✓ ' : '  ';
-    const shortcut = it.cmd ? s.shortcutFor(it.cmd, it.arg) : '';
+    const shortcut = keyOf(it);
     screen.fill(x + 1, row, inner, 1, st);
     screen.put(x + 1, row, check + it.label, st);
     if (shortcut) screen.put(x + boxW - 2 - w(shortcut), row, shortcut, st);
-    if (enabled) {
-      hits.push({ x: x + 1, y: row, w: inner, h: 1, onMouse: () => s.activateMenuItem(s.menu.index, i), onHover: () => void (s.menu.item = i) });
-    }
+    if (enabled) hits.push({ x: x + 1, y: row, w: inner, h: 1, onMouse: () => activate(i), onHover: () => hover(i) });
   });
+  if (view.top > 0) screen.put(x + boxW - 1, y + 1, '▲', theme.dropdown);
+  if (view.top + view.rows < items.length) screen.put(x + boxW - 1, y + view.rows, '▼', theme.dropdown);
+  return { x, y, w: boxW, h: boxH };
+}
+
+function drawDropdown(c: Ctx, xs: number[]): void {
+  const { s, theme, L, hits } = c;
+  const menu = MENUS[s.menu.index]!;
+  // Clicking anywhere else closes the menu.
+  hits.push({ x: 0, y: 0, w: L.cols, h: L.rows, onMouse: () => s.closeMenu() });
+  const y = L.menuY + 1;
+  const parent = drawMenuBox(
+    c,
+    menu.items,
+    y,
+    s.menu.item,
+    (boxW) => Math.min(xs[s.menu.index] ?? 0, Math.max(L.cols - boxW, 0)),
+    (i) => void s.activateMenuItem(s.menu.index, i),
+    (i) => {
+      if (s.menu.sub >= 0 && s.menu.item === i) return;
+      if (s.openSubmenu(s.menu.index, i)) return;
+      // The pointer may be on its way to the open submenu: close it only if it stays away.
+      if (s.menu.sub >= 0) s.leaveSubmenu();
+      else s.menu.item = i;
+    },
+  );
+  const subItems = s.menu.sub >= 0 ? menu.items[s.menu.item]?.submenu : undefined;
+  s.menuParentBox = { x: parent.x, y, w: parent.w };
+  s.submenuKeep = [];
+  if (subItems) {
+    // Long lists (syntax languages) scroll so that the highlighted row stays visible.
+    const rows = Math.max(Math.min(subItems.length, L.rows - 3), 1);
+    let top = Math.min(s.menu.subTop, s.menu.sub);
+    if (s.menu.sub >= top + rows) top = s.menu.sub - rows + 1;
+    top = Math.max(Math.min(top, subItems.length - rows), 0);
+    s.menu.subTop = top;
+    const sub = drawMenuBox(
+      c,
+      subItems,
+      y + s.menu.item,
+      s.menu.sub,
+      (boxW) => (parent.x + parent.w + boxW <= L.cols ? parent.x + parent.w : Math.max(parent.x - boxW, 0)),
+      (i) => void s.activateMenuItem(s.menu.index, s.menu.item, i),
+      (i) => void (s.menu.sub = i),
+      { top, rows },
+    );
+    s.submenuKeep = [
+      { x: parent.x, y: y + 1 + s.menu.item, w: parent.w, h: 1 },
+      { x: sub.x, y: sub.y, w: sub.w, h: sub.h },
+    ];
+  }
+  void theme;
   // Keep the menu bar clickable above the backdrop.
   MENUS.forEach((m, i) => {
     const ww = w(` ${m.label} `);
@@ -385,7 +466,8 @@ function drawEditor(c: Ctx): RowInfo[] {
   const cursor = s.doc.cursor;
   const showCursor = !s.dialog && !s.menu.open && !(s.find?.focus ?? false);
   const cursorStyle = s.overwrite ? style({ ...theme.cursor, underline: true }) : theme.cursor;
-  const ws = s.config.showWhitespace;
+  const sc = s.config.specialChars;
+  const eolLabel = s.eol.toUpperCase();
 
   rows.forEach((row, i) => {
     const y = editor.y + i;
@@ -423,6 +505,15 @@ function drawEditor(c: Ctx): RowInfo[] {
         const sp = spans[si];
         if (sp && sp.start <= cell.index) st = merge(base, theme.syntax[sp.kind]);
       }
+      const mark = markFor(cell.text);
+      let ch = cell.text;
+      if (cell.text === '\t') {
+        ch = sc.whitespace ? '→' + ' '.repeat(cell.width - 1) : ' '.repeat(cell.width);
+        if (sc.whitespace) st = theme.mark.whitespace;
+      } else if (mark) {
+        ch = badge(mark.label);
+        st = theme.mark[mark.kind];
+      }
       const m = matches.find((q) => cell.index >= q.start && cell.index < q.end);
       if (m) {
         const current = m.current ?? (sel && sel.start.line === row.line && sel.start.col === m.start && sel.end.col === m.end && sel.end.line === row.line);
@@ -430,28 +521,33 @@ function drawEditor(c: Ctx): RowInfo[] {
       }
       if (selLo >= 0 && cell.index >= selLo && cell.index < selHi) st = theme.selection;
 
-      let ch = cell.text;
-      if (cell.text === '\t') {
-        ch = ws ? '→' + ' '.repeat(cell.width - 1) : ' '.repeat(cell.width);
-        if (ws && st === base) st = merge(base, theme.whitespace);
-      } else if (cell.text === ' ' && ws) {
+      if (cell.text === ' ' && sc.whitespace) {
         ch = '·';
         if (st === base || st === merge(base, theme.syntax.comment)) st = merge(st, theme.whitespace);
       } else if (cell.width === 0) {
         ch = '·';
       }
       if (x < textX) {
-        screen.put(textX, y, ' '.repeat(x + cell.width - textX), st, textX + textW);
+        screen.put(textX, y, mark || cell.text === '\t' ? ch.slice(textX - x) : ' '.repeat(x + cell.width - textX), st, textX + textW);
       } else {
         screen.put(x, y, ch, st, textX + textW);
       }
       lastX = Math.max(lastX, x + cell.width);
     }
 
-    // End-of-line marker / selected line break.
-    if (row.end >= text.length && lastX < textX + textW) {
-      if (selContinues) screen.put(lastX, y, ws ? '↵' : ' ', theme.selection, textX + textW);
-      else if (ws) screen.put(lastX, y, '↵', merge(base, theme.whitespace), textX + textW);
+    // End-of-line / end-of-file badges and selected line break.
+    if (row.end >= text.length) {
+      const last = row.line === buf.lineCount - 1;
+      let ex = lastX;
+      if (sc.eol || sc.control) ex = Math.max(textX + displayWidth(text, text.length) - row.baseCol - left, textX);
+      const put = (label: string, st: Style) => {
+        const b = badge(label);
+        screen.put(ex, y, b, st, textX + textW);
+        ex += b.length;
+      };
+      if (!last && sc.eol) put(eolLabel, selContinues ? theme.selection : theme.mark.eol);
+      else if (!last && selContinues && ex < textX + textW) screen.put(ex, y, ' ', theme.selection, textX + textW);
+      if (last && sc.control) put('EOF', theme.mark.eof);
     }
 
     if (showCursor && isCursorLine && cursor.col >= row.start && (cursor.col < row.end || (row.end >= text.length && cursor.col <= text.length))) {
@@ -612,7 +708,7 @@ function drawDialog(c: Ctx, d: Dialog): void {
     const sel = top + i === d.index;
     const st = sel ? (d.focus === 'list' ? theme.dropdownActive : style({ ...theme.dialog, inverse: true })) : theme.dialog;
     screen.fill(x + 1, y + 2 + i, bw - 2, 1, st);
-    screen.put(x + 2, y + 2 + i, truncate(`${e.dir ? '▸ ' : '  '}${e.name}${e.dir && e.name !== '..' && !e.name.endsWith('\\') ? '/' : ''}`, bw - 4), st);
+    screen.put(x + 2, y + 2 + i, truncate(`${e.dir ? '▸ ' : '  '}${unlinkable(e.name)}${e.dir && e.name !== '..' && !e.name.endsWith('\\') ? '/' : ''}`, bw - 4), st);
     const idx = top + i;
     hits.push({
       x: x + 1,

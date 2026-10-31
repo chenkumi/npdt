@@ -65,7 +65,7 @@ Configuration file: `%APPDATA%\npdt\config.json` on Windows; `$XDG_CONFIG_HOME/n
   "insertSpaces": true,
   "wordWrap": false,
   "showLineNumbers": true,
-  "showWhitespace": false,
+  "specialChars": { "whitespace": false, "eol": false, "nonPrinting": false, "control": false },
   "highlightCurrentLine": true,
   "syntaxHighlight": true,
   "autoIndent": true,
@@ -76,6 +76,7 @@ Configuration file: `%APPDATA%\npdt\config.json` on Windows; `$XDG_CONFIG_HOME/n
 }
 ```
 
+- Special characters: View → Special Characters shows hidden characters as colored badges (` CRLF `, ` ZWSP `, ` NUL `, ` EOF `). Categories: spaces and tabs, line endings, non-printing (zero-width / bidi / format), control characters and EOF. Display only; the file is unchanged. The old `showWhitespace` setting is migrated automatically. See `docs/SPECIAL-CHARS.md`.
 - Themes: `dark` (default), `light` (the old name `classic` still works), and `contrast`. `F9` switches between dark and light; View → Theme also lets you choose. Changes made through the menu are saved automatically.
 - Language: defaults to `en`. The 10 supported languages are `en`, `zh-TW`, `zh-CN`, `ja`, `ko`, `es`, `fr`, `de`, `pt-BR`, and `ru`. `auto` selects from the system locale using `LC_ALL`, `LANG`, and related variables. Change it through View → Language…; the change takes effect immediately. Technical status-bar labels (Length / Lines / Ln / Col) are not translated.
 - Adding a language: copy and translate `src/core/locales/en.ts`, then register it in `src/core/i18n.ts`. Ensure all languages have matching keys and `{parameters}`.

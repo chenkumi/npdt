@@ -1,3 +1,4 @@
+import { specialsActive } from '../core/buffer/specials.js';
 import { lineCells } from '../core/buffer/graphemes.js';
 
 export interface Rect {
@@ -45,7 +46,7 @@ export function computeLayout(cols: number, rows: number, lineCount: number, sho
 
 /** Start column (UTF-16 index) of every visual row of `line` when wrapped at `width` display columns. */
 export function wrapStarts(line: string, width: number): number[] {
-  if (line.length * 2 <= width && !line.includes('\t')) return [0];
+  if (line.length * 2 <= width && !line.includes('\t') && !specialsActive()) return [0];
   const starts = [0];
   let base = 0;
   for (const c of lineCells(line)) {
